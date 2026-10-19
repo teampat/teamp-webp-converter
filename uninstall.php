@@ -4,13 +4,13 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 }
 
 $options = array(
-    'swc_enabled',
-    'swc_quality',
-    'swc_delete_original',
-    'swc_resize_enabled',
-    'swc_max_width',
-    'swc_max_height',
-    'swc_image_types',
+    'teamp_webp_enabled',
+    'teamp_webp_quality',
+    'teamp_webp_delete_original',
+    'teamp_webp_resize_enabled',
+    'teamp_webp_max_width',
+    'teamp_webp_max_height',
+    'teamp_webp_image_types',
 );
 
 foreach ($options as $option) {

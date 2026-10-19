@@ -4,12 +4,13 @@
  * Plugin Name: Teamp WebP Converter
  * Plugin URI: https://github.com/teampat/teamp-webp-converter
  * Description: A WordPress plugin to convert images to WebP format with customizable options
- * Version: 1.0.1
+ * Version: 1.0.2
  * Requires at least: 6.7
  * Requires PHP: 7.4
+ * Tested up to: 7.1
  * Author: teampat
  * Author URI: https://github.com/teampat
- * License: GPL v2 or later
+ * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: teamp-webp-converter
  */
@@ -18,7 +19,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('TEAMP_WEBP_VERSION', '1.0.1');
+define('TEAMP_WEBP_VERSION', '1.0.2');
 define('TEAMP_WEBP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TEAMP_WEBP_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -27,6 +28,8 @@ require_once TEAMP_WEBP_PLUGIN_DIR . 'includes/class-teamp-webp-converter-settin
 
 function teamp_webp_converter_init()
 {
+    Teamp_WebP_Converter_Settings::migrate_legacy_options();
+
     load_plugin_textdomain(
         'teamp-webp-converter',
         false,
@@ -41,6 +44,7 @@ add_action('plugins_loaded', 'teamp_webp_converter_init');
 register_activation_hook(__FILE__, 'teamp_webp_converter_activate');
 function teamp_webp_converter_activate()
 {
+    Teamp_WebP_Converter_Settings::migrate_legacy_options();
     Teamp_WebP_Converter_Settings::add_default_options();
 }
 

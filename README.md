@@ -66,6 +66,8 @@ A WordPress plugin that automatically converts uploaded images to WebP format wi
 
 For support, feature requests, or bug reports, please visit our [GitHub repository](https://github.com/teampat/teamp-webp-converter) or create an issue there.
 
+The WordPress.org listing is generated from `readme.txt`.
+
 ## License
 
 This plugin is licensed under the GPL v2 or later.
@@ -75,6 +77,12 @@ This plugin is licensed under the GPL v2 or later.
 Developed by [teampat](https://github.com/teampat)
 
 ## Changelog
+
+### 1.0.2
+
+- Add the WordPress.org readme and tested-up-to header
+- Store settings with a unique option prefix and migrate older settings
+- Warn that deleting the original image is permanent
 
 ### 1.0.1
 
