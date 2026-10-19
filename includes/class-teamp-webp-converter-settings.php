@@ -5,11 +5,66 @@ if (!defined('ABSPATH')) {
 
 class Teamp_WebP_Converter_Settings
 {
+    const OPTION_ENABLED = 'swc_enabled';
+    const OPTION_QUALITY = 'swc_quality';
+    const OPTION_DELETE_ORIGINAL = 'swc_delete_original';
+    const OPTION_RESIZE_ENABLED = 'swc_resize_enabled';
+    const OPTION_MAX_WIDTH = 'swc_max_width';
+    const OPTION_MAX_HEIGHT = 'swc_max_height';
+    const OPTION_IMAGE_TYPES = 'swc_image_types';
+
+    public static function defaults()
+    {
+        return array(
+            'enabled' => '0',
+            'quality' => '75',
+            'delete_original' => '1',
+            'resize_enabled' => '1',
+            'max_width' => '2048',
+            'max_height' => '2048',
+            'image_types' => array('jpg', 'jpeg', 'png'),
+        );
+    }
+
+    public static function option_map()
+    {
+        return array(
+            'enabled' => self::OPTION_ENABLED,
+            'quality' => self::OPTION_QUALITY,
+            'delete_original' => self::OPTION_DELETE_ORIGINAL,
+            'resize_enabled' => self::OPTION_RESIZE_ENABLED,
+            'max_width' => self::OPTION_MAX_WIDTH,
+            'max_height' => self::OPTION_MAX_HEIGHT,
+            'image_types' => self::OPTION_IMAGE_TYPES,
+        );
+    }
+
+    public static function get($key)
+    {
+        $defaults = self::defaults();
+        $option_map = self::option_map();
+
+        if (!isset($defaults[$key], $option_map[$key])) {
+            return null;
+        }
+
+        return get_option($option_map[$key], $defaults[$key]);
+    }
+
+    public static function add_default_options()
+    {
+        $defaults = self::defaults();
+
+        foreach (self::option_map() as $key => $option_name) {
+            add_option($option_name, $defaults[$key]);
+        }
+    }
+
     public function add_admin_menu()
     {
         add_options_page(
-            'Teamp WebP Converter Settings',
-            'Teamp WebP Converter',
+            __('Teamp WebP Converter Settings', 'teamp-webp-converter'),
+            __('Teamp WebP Converter', 'teamp-webp-converter'),
             'manage_options',
             'teamp-webp-converter',
             array($this, 'render_settings_page')
@@ -18,27 +73,93 @@ class Teamp_WebP_Converter_Settings
 
     public function register_settings()
     {
-        register_setting('swc_settings', 'swc_enabled');
-        register_setting('swc_settings', 'swc_quality');
-        register_setting('swc_settings', 'swc_delete_original');
-        register_setting('swc_settings', 'swc_resize_enabled');
-        register_setting('swc_settings', 'swc_max_width');
-        register_setting('swc_settings', 'swc_max_height');
-        register_setting('swc_settings', 'swc_image_types');
+        $checkbox_args = array(
+            'type' => 'string',
+            'sanitize_callback' => array($this, 'sanitize_checkbox'),
+        );
+
+        register_setting('swc_settings', self::OPTION_ENABLED, array_merge($checkbox_args, array(
+            'default' => self::defaults()['enabled'],
+        )));
+        register_setting('swc_settings', self::OPTION_QUALITY, array(
+            'type' => 'string',
+            'sanitize_callback' => array($this, 'sanitize_quality'),
+            'default' => self::defaults()['quality'],
+        ));
+        register_setting('swc_settings', self::OPTION_DELETE_ORIGINAL, array_merge($checkbox_args, array(
+            'default' => self::defaults()['delete_original'],
+        )));
+        register_setting('swc_settings', self::OPTION_RESIZE_ENABLED, array_merge($checkbox_args, array(
+            'default' => self::defaults()['resize_enabled'],
+        )));
+        register_setting('swc_settings', self::OPTION_MAX_WIDTH, array(
+            'type' => 'string',
+            'sanitize_callback' => array($this, 'sanitize_dimension'),
+            'default' => self::defaults()['max_width'],
+        ));
+        register_setting('swc_settings', self::OPTION_MAX_HEIGHT, array(
+            'type' => 'string',
+            'sanitize_callback' => array($this, 'sanitize_dimension'),
+            'default' => self::defaults()['max_height'],
+        ));
+        register_setting('swc_settings', self::OPTION_IMAGE_TYPES, array(
+            'type' => 'array',
+            'sanitize_callback' => array($this, 'sanitize_image_types'),
+            'default' => self::defaults()['image_types'],
+        ));
+    }
+
+    public function sanitize_checkbox($value)
+    {
+        return ($value === '1' || $value === 1 || $value === true) ? '1' : '0';
+    }
+
+    public function sanitize_quality($value)
+    {
+        return (string) min(100, max(0, intval($value)));
+    }
+
+    public function sanitize_dimension($value)
+    {
+        return (string) max(1, intval($value));
+    }
+
+    public function sanitize_image_types($types)
+    {
+        if (!is_array($types)) {
+            return array();
+        }
+
+        $allowed = array('jpg', 'jpeg', 'png');
+        $types = array_map('strtolower', $types);
+        $types = array_values(array_intersect($types, $allowed));
+
+        if (in_array('jpg', $types, true) && !in_array('jpeg', $types, true)) {
+            $types[] = 'jpeg';
+        }
+
+        return array_values(array_unique($types));
     }
 
     public function render_settings_page()
     {
-        // Check WebP support
-        $webp_supported = extension_loaded('imagick') || extension_loaded('gd');
-?>
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $webp_supported = Teamp_WebP_Converter::supports_webp();
+        $image_types = self::get('image_types');
+        $display_types = array(
+            'jpg' => __('JPG', 'teamp-webp-converter'),
+            'png' => __('PNG', 'teamp-webp-converter'),
+        );
+        ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
 
             <?php if (!$webp_supported): ?>
                 <div class="notice notice-error">
-                    <p><?php _e('WebP conversion is not supported on your server. Please install Imagick or GD extension with WebP support.', 'teamp-webp-converter'); ?>
-                    </p>
+                    <p><?php esc_html_e('WebP conversion is not supported on your server. Please install Imagick or GD extension with WebP support.', 'teamp-webp-converter'); ?></p>
                 </div>
             <?php endif; ?>
 
@@ -48,96 +169,80 @@ class Teamp_WebP_Converter_Settings
                 do_settings_sections('swc_settings');
                 ?>
 
-                <table class="form-table">
+                <table class="form-table" role="presentation">
                     <tr>
-                        <th scope="row"><?php _e('Enable WebP Conversion', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Enable WebP Conversion', 'teamp-webp-converter'); ?></th>
                         <td>
                             <label>
-                                <input type="checkbox" name="swc_enabled" value="1"
-                                    <?php checked(get_option('swc_enabled'), '1'); ?> <?php disabled(!$webp_supported); ?>>
-                                <?php _e('Convert new upload images to WebP format', 'teamp-webp-converter'); ?>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION_ENABLED); ?>" value="1"
+                                    <?php checked(self::get('enabled'), '1'); ?> <?php disabled(!$webp_supported); ?>>
+                                <?php esc_html_e('Convert new upload images to WebP format', 'teamp-webp-converter'); ?>
                             </label>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Image Quality', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Image Quality', 'teamp-webp-converter'); ?></th>
                         <td>
-                            <input type="number" name="swc_quality"
-                                value="<?php echo esc_attr(get_option('swc_quality', 80)); ?>" min="0" max="100">
-                            <p class="description">
-                                <?php _e('Set the quality of WebP conversion (0-100)', 'teamp-webp-converter'); ?></p>
+                            <input type="number" name="<?php echo esc_attr(self::OPTION_QUALITY); ?>"
+                                value="<?php echo esc_attr(self::get('quality')); ?>" min="0" max="100">
+                            <p class="description"><?php esc_html_e('Set the quality of WebP conversion (0-100)', 'teamp-webp-converter'); ?></p>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Delete Original Image', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Delete Original Image', 'teamp-webp-converter'); ?></th>
                         <td>
                             <label>
-                                <input type="checkbox" name="swc_delete_original" value="1"
-                                    <?php checked(get_option('swc_delete_original'), '1'); ?>>
-                                <?php _e('Delete original image', 'teamp-webp-converter'); ?>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION_DELETE_ORIGINAL); ?>" value="1"
+                                    <?php checked(self::get('delete_original'), '1'); ?>>
+                                <?php esc_html_e('Delete original image', 'teamp-webp-converter'); ?>
                             </label>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Enable Image Resize', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Enable Image Resize', 'teamp-webp-converter'); ?></th>
                         <td>
                             <label>
-                                <input type="checkbox" name="swc_resize_enabled" value="1"
-                                    <?php checked(get_option('swc_resize_enabled'), '1'); ?>>
-                                <?php _e('Resize original image', 'teamp-webp-converter'); ?>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION_RESIZE_ENABLED); ?>" value="1"
+                                    <?php checked(self::get('resize_enabled'), '1'); ?>>
+                                <?php esc_html_e('Resize original image', 'teamp-webp-converter'); ?>
                             </label>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Maximum Width', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Maximum Width', 'teamp-webp-converter'); ?></th>
                         <td>
-                            <input type="number" name="swc_max_width"
-                                value="<?php echo esc_attr(get_option('swc_max_width', 1920)); ?>" min="1">
-                            <p class="description"><?php _e('Maximum width in pixels', 'teamp-webp-converter'); ?></p>
+                            <input type="number" name="<?php echo esc_attr(self::OPTION_MAX_WIDTH); ?>"
+                                value="<?php echo esc_attr(self::get('max_width')); ?>" min="1">
+                            <p class="description"><?php esc_html_e('Maximum width in pixels', 'teamp-webp-converter'); ?></p>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Maximum Height', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Maximum Height', 'teamp-webp-converter'); ?></th>
                         <td>
-                            <input type="number" name="swc_max_height"
-                                value="<?php echo esc_attr(get_option('swc_max_height', 1080)); ?>" min="1">
-                            <p class="description"><?php _e('Maximum height in pixels', 'teamp-webp-converter'); ?></p>
+                            <input type="number" name="<?php echo esc_attr(self::OPTION_MAX_HEIGHT); ?>"
+                                value="<?php echo esc_attr(self::get('max_height')); ?>" min="1">
+                            <p class="description"><?php esc_html_e('Maximum height in pixels', 'teamp-webp-converter'); ?></p>
                         </td>
                     </tr>
 
                     <tr>
-                        <th scope="row"><?php _e('Image Types to Convert', 'teamp-webp-converter'); ?></th>
+                        <th scope="row"><?php esc_html_e('Image Types to Convert', 'teamp-webp-converter'); ?></th>
                         <td>
-                            <?php
-                            // Define available types (only JPG and PNG)
-                            $image_types = get_option('swc_image_types', array('jpg', 'jpeg', 'png'));
-                            $display_types = array(
-                                'jpg' => __('JPG', 'teamp-webp-converter'),
-                                'png' => __('PNG', 'teamp-webp-converter')
-                            );
-
-                            foreach ($display_types as $type => $label) {
-                                $is_checked = in_array($type, $image_types) || ($type === 'jpg' && in_array('jpeg', $image_types));
-                            ?>
+                            <?php foreach ($display_types as $type => $label) :
+                                $is_checked = in_array($type, (array) $image_types, true)
+                                    || ($type === 'jpg' && in_array('jpeg', (array) $image_types, true));
+                                ?>
                                 <label style="display: block; margin-bottom: 5px;">
-                                    <input type="checkbox" name="swc_image_types[]" value="<?php echo esc_attr($type); ?>"
+                                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION_IMAGE_TYPES); ?>[]" value="<?php echo esc_attr($type); ?>"
                                         <?php checked($is_checked); ?>>
                                     <?php echo esc_html($label); ?>
                                 </label>
-                                <?php
-                                // Add hidden input for JPEG when JPG is selected
-                                if ($type === 'jpg') {
-                                ?>
-                                    <input type="hidden" name="swc_image_types[]" value="jpeg" <?php disabled(!$is_checked); ?>>
-                            <?php
-                                }
-                            }
-                            ?>
+                            <?php endforeach; ?>
                         </td>
                     </tr>
                 </table>
@@ -145,6 +250,6 @@ class Teamp_WebP_Converter_Settings
                 <?php submit_button(); ?>
             </form>
         </div>
-<?php
+        <?php
     }
 }

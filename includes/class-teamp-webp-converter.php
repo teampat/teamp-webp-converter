@@ -5,109 +5,125 @@ if (!defined('ABSPATH')) {
 
 class Teamp_WebP_Converter
 {
-    private $settings;
-
     public function init()
     {
-        $this->settings = new Teamp_WebP_Converter_Settings();
-
-        // Add hooks for image upload
         add_filter('wp_handle_upload', array($this, 'convert_to_webp'), 10, 2);
 
-        // Add admin menu
-        add_action('admin_menu', array($this->settings, 'add_admin_menu'));
+        $settings = new Teamp_WebP_Converter_Settings();
+        add_action('admin_menu', array($settings, 'add_admin_menu'));
+        add_action('admin_init', array($settings, 'register_settings'));
+    }
 
-        // Register settings
-        add_action('admin_init', array($this->settings, 'register_settings'));
+    public static function supports_webp()
+    {
+        return wp_image_editor_supports(array('mime_type' => 'image/webp'));
     }
 
     public function convert_to_webp($upload, $context)
     {
-        // Check if conversion is enabled
-        if (get_option('swc_enabled') !== '1') {
+        try {
+            return $this->maybe_convert_to_webp($upload);
+        } catch (Throwable $e) {
+            return $upload;
+        }
+    }
+
+    private function maybe_convert_to_webp($upload)
+    {
+        if (!is_array($upload) || empty($upload['file'])) {
+            return $upload;
+        }
+
+        if (Teamp_WebP_Converter_Settings::get('enabled') !== '1') {
+            return $upload;
+        }
+
+        if (!self::supports_webp()) {
             return $upload;
         }
 
         $file = $upload['file'];
         $file_type = wp_check_filetype($file);
-        $allowed_types = get_option('swc_image_types', array('jpg', 'png'));
-        // Add 'jpeg' if 'jpg' is selected
-        if (in_array('jpg', $allowed_types) && !in_array('jpeg', $allowed_types)) {
-            $allowed_types[] = 'jpeg';
-        }
+        $extension = strtolower((string) $file_type['ext']);
 
-        // Check if file type is allowed for conversion
-        if (!in_array(strtolower($file_type['ext']), $allowed_types)) {
+        if ($extension === 'webp' || (isset($upload['type']) && $upload['type'] === 'image/webp')) {
             return $upload;
         }
 
-        // Get image quality
-        $quality = get_option('swc_quality', 75);
-        $delete_original = get_option('swc_delete_original') === '1';
-        $resize_enabled = get_option('swc_resize_enabled') === '1';
-        $original_file = $file;
-
-        // Check if resize is enabled
-        if ($resize_enabled) {
-            $max_width = get_option('swc_max_width', 2048);
-            $max_height = get_option('swc_max_height', 2048);
-
-            // Resize image if needed
-            $image = wp_get_image_editor($file);
-            if (!is_wp_error($image)) {
-                $image->resize($max_width, $max_height, false);
-                $image->save($file);
-            }
+        $allowed_types = $this->get_allowed_types();
+        if (!in_array($extension, $allowed_types, true)) {
+            return $upload;
         }
 
-        // Generate WebP filename with number if file exists
+        wp_raise_memory_limit('image');
+
+        $editor = wp_get_image_editor($file);
+        if (is_wp_error($editor)) {
+            return $upload;
+        }
+
+        if (Teamp_WebP_Converter_Settings::get('resize_enabled') === '1') {
+            $max_width = max(1, intval(Teamp_WebP_Converter_Settings::get('max_width')));
+            $max_height = max(1, intval(Teamp_WebP_Converter_Settings::get('max_height')));
+            $editor->resize($max_width, $max_height, false);
+        }
+
+        $quality = min(100, max(0, intval(Teamp_WebP_Converter_Settings::get('quality'))));
+        $editor->set_quality($quality);
+
         $webp_file = $this->generate_unique_webp_filename($file);
-
-        if (extension_loaded('imagick')) {
-            $imagick = new Imagick($file);
-            $imagick->setImageFormat('webp');
-            $imagick->setImageCompressionQuality($quality);
-            $imagick->writeImage($webp_file);
-        } elseif (extension_loaded('gd')) {
-            $image = imagecreatefromstring(file_get_contents($file));
-            imagewebp($image, $webp_file, $quality);
-            imagedestroy($image);
+        $saved = $editor->save($webp_file, 'image/webp');
+        if (is_wp_error($saved) || !file_exists($webp_file)) {
+            return $upload;
         }
 
-        // Update file information
-        if (file_exists($webp_file)) {
-            $upload['file'] = $webp_file;
-            $upload['type'] = 'image/webp';
-            $upload['url'] = str_replace(basename($file), basename($webp_file), $upload['url']);
+        $upload['file'] = $webp_file;
+        $upload['type'] = 'image/webp';
+        $upload['url'] = trailingslashit(dirname($upload['url'])) . basename($webp_file);
 
-            // Delete original image if option is enabled
-            if ($delete_original) {
-                @unlink($file);
-            }
+        if (
+            Teamp_WebP_Converter_Settings::get('delete_original') === '1'
+            && file_exists($file)
+            && $file !== $webp_file
+        ) {
+            wp_delete_file($file);
         }
 
         return $upload;
     }
 
+    private function get_allowed_types()
+    {
+        $allowed_types = Teamp_WebP_Converter_Settings::get('image_types');
+        if (!is_array($allowed_types)) {
+            $allowed_types = array();
+        }
+
+        $allowed_types = array_map('strtolower', $allowed_types);
+
+        if (in_array('jpg', $allowed_types, true) && !in_array('jpeg', $allowed_types, true)) {
+            $allowed_types[] = 'jpeg';
+        }
+
+        return $allowed_types;
+    }
+
     /**
-     * Generate a unique WebP filename by adding a number if the file already exists
+     * Generate a unique WebP filename by adding a number if the file already exists.
      *
-     * @param string $original_file The original file path
-     * @return string The unique WebP file path
+     * @param string $original_file The original file path.
+     * @return string The unique WebP file path.
      */
     private function generate_unique_webp_filename($original_file)
     {
         $path_parts = pathinfo($original_file);
         $base_name = strtolower($path_parts['filename']);
         $directory = $path_parts['dirname'];
-        $extension = '.webp';
-
-        $webp_file = $directory . '/' . $base_name . $extension;
+        $webp_file = $directory . '/' . $base_name . '.webp';
         $counter = 1;
 
-        // Check if file exists and add number until we find a unique filename
         while (file_exists($webp_file)) {
-            $webp_file = $directory . '/' . $base_name . '-' . $counter . $extension;
+            $webp_file = $directory . '/' . $base_name . '-' . $counter . '.webp';
             $counter++;
         }
 

@@ -38,6 +38,7 @@ A WordPress plugin that automatically converts uploaded images to WebP format wi
 
 ## Default Settings
 
+- Automatic conversion: Disabled
 - Quality: 75%
 - Delete Original Images: Enabled
 - Image Resize: Enabled
@@ -74,6 +75,14 @@ This plugin is licensed under the GPL v2 or later.
 Developed by [teampat](https://github.com/teampat)
 
 ## Changelog
+
+### 1.0.1
+
+- Save unchecked settings correctly
+- Use consistent default values across the plugin
+- Convert with the WordPress image editor so failed conversions keep the original file
+- Sanitize settings and check actual WebP support
+- Remove leftover settings on uninstall
 
 ### 1.0.0
 
